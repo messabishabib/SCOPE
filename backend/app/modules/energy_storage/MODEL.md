@@ -10,6 +10,7 @@ This document is the mathematical contract for the first energy module. Code nam
 - Linear charging and discharging efficiencies.
 - Charging and discharging are mutually exclusive.
 - Grid export price cannot exceed grid import price in this version.
+- Grid import and export capacities are optional fixed connection ratings; omitted capacities preserve unlimited exchange.
 - Every asset has independent energy bounds, power limits, efficiencies, variable costs, initial state, and terminal requirement.
 - The deterministic model has no natural inflow; asset-specific scenario inflows are represented in the stochastic model and simulation.
 - Reserves and ramping are future extensions.
@@ -23,6 +24,8 @@ This document is the mathematical contract for the first energy module. Code nam
 All physical storage variables and constraints below are applied for every `a ∈ A`. The system energy balance uses the sum of charging and discharging across the portfolio; state transitions, bounds, efficiencies, costs, and terminal requirements remain asset-specific.
 
 ## Input parameters
+
+`grid_import_capacity_mw` and `grid_export_capacity_mw` are optional fixed connection ratings in MW. A `null` value means unlimited exchange for backward compatibility.
 
 | Mathematical name | Code field | Unit | Meaning |
 |---|---|---|---|
@@ -118,9 +121,20 @@ Implemented as `model.terminal_storage_requirement`. This prevents the finite-ho
 
 Implemented as `model.renewable_curtailment_limit`.
 
+### Grid connection limits
+
+When a capacity is configured, grid exchange is bounded by the connection rating multiplied by interval duration:
+
+```text
+grid_import_mwh[t] <= grid_import_capacity_mw * interval_hours
+grid_export_mwh[t] <= grid_export_capacity_mw * interval_hours
+```
+
+Implemented as `model.grid_import_limit` and `model.grid_export_limit` in both deterministic and stochastic formulations. Setting a capacity to zero represents a complete fixed outage; omitting it preserves backward-compatible unlimited exchange.
+
 ## Solution validation
 
-`optimization/validation.py` independently recomputes energy balances, storage transitions, simultaneous operation, and terminal compliance from the returned values. A result is exposed as validated only when all residuals are within tolerance.
+`optimization/validation.py` independently recomputes energy balances, storage transitions, simultaneous operation, terminal compliance, and grid-capacity violations from the returned values. Diagnostics also report binding periods and maximum connection utilization. A result is exposed as validated only when all residuals are within tolerance.
 
 ## Scenario-based extension
 
@@ -196,5 +210,5 @@ import price * grid import - export price * grid export
 + variable charge cost + variable discharge cost + spill penalty * spilled inflow
 ```
 
-Remaining stored energy is valued at the simulation boundary. This prevents a policy from appearing artificially cheap simply because it empties the reservoir before the evaluation ends. Because the current grid connection is unlimited, simulation v1 does not shed load; a grid-capacity or outage model is required before unserved-energy reliability comparisons are meaningful.
+Remaining stored energy is valued at the simulation boundary. This prevents a policy from appearing artificially cheap simply because it empties the reservoir before the evaluation ends. When import capacity is exhausted, the residual deficit is recorded and priced as unserved energy. When export capacity binds, renewable energy is curtailed first; any remaining surplus caused by a planned discharge is resolved by clipping that discharge and retaining the energy in storage, subject to its physical bounds.
 

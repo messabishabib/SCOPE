@@ -33,6 +33,7 @@ SCOPE is designed as both a working application and a transparent research artif
 ## Highlights
 
 - Multi-asset energy-storage portfolios with asset-specific power, energy, efficiency, cost, inflow, and optimized spillage
+- Optional grid import/export capacities enforced consistently in optimization and closed-loop simulation
 - Explicit nonanticipativity for scenario-based decisions before uncertainty is revealed
 - Rolling-horizon reoptimization from the observed physical state
 - Closed-loop comparison of deterministic and stochastic policies on the same realized path
@@ -136,11 +137,11 @@ The maintained source is `docs/energy-storage-model-and-roadmap.md`; the command
 
 ## Current boundaries
 
-The current release supports deterministic what-if runs, expected-cost two-stage planning, a blended risk-aware objective, finite-scenario worst-case protection, deterministic and stochastic multi-storage dispatch, asset-specific natural inflows and optimized spillage by scenario, rolling-horizon execution, and closed-loop policy simulation. ADP/SDDP, grid outage/capacity limits, Excel import/export, authentication, and production-grade distributed jobs are not implemented. Unsupported minimum activation duration is rejected clearly during validation.
+The current release supports deterministic what-if runs, expected-cost two-stage planning, a blended risk-aware objective, finite-scenario worst-case protection, deterministic and stochastic multi-storage dispatch, asset-specific natural inflows and optimized spillage by scenario, fixed grid import/export capacities, rolling-horizon execution, and closed-loop policy simulation. Time-varying grid availability/outage profiles, ADP/SDDP, Excel import/export, authentication, and production-grade distributed jobs are not implemented. Unsupported minimum activation duration is rejected clearly during validation.
 
 ## Roadmap
 
-The optimized-spillage milestone is complete. The next energy-model milestone adds grid import/export capacity limits and availability/outage profiles. Later milestones cover asset-specific terminal values, degradation, risk measures such as CVaR, multistage scenario trees, and hybrid SDDP/MILP approaches. The maintained [scientific roadmap](docs/energy-storage-model-and-roadmap.md#development-roadmap) records the rationale and validation criteria for each upgrade.
+The fixed grid-capacity milestone is complete. The next energy-model milestone adds time-varying grid availability and scenario-specific outage profiles. Later milestones cover asset-specific terminal values, degradation, risk measures such as CVaR, multistage scenario trees, and hybrid SDDP/MILP approaches. The maintained [scientific roadmap](docs/energy-storage-model-and-roadmap.md#development-roadmap) records the rationale and validation criteria for each upgrade.
 
 ## License
 

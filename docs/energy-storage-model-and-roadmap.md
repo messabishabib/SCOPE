@@ -6,7 +6,7 @@ date: "2026-11-25"
 date-format: "D MMMM YYYY"
 ---
 
-**Model baseline:** multi-asset stochastic dispatch with optimized inflow spillage, 25 November 2026
+**Model baseline:** multi-asset stochastic dispatch with optimized inflow spillage and fixed grid-connection limits, 25 November 2026
 **Audience:** developers, model reviewers, energy-system analysts, and future contributors  
 **Purpose:** define the implemented mathematical model, explain how it is solved and validated, and establish a controlled path toward a multistage dynamic model.
 
@@ -27,7 +27,7 @@ The current scope includes:
 - multiple independently constrained storage assets;
 - deterministic and finite-scenario stochastic dispatch;
 - hourly or other constant-duration time intervals;
-- grid imports and exports;
+- grid imports and exports with optional fixed connection capacities;
 - renewable generation and curtailment;
 - unserved energy with a penalty;
 - asset-specific natural inflows in stochastic studies;
@@ -57,6 +57,7 @@ All assets are currently connected to the same unconstrained electrical bus. The
 | $R_{\omega,t}$ | Available renewable energy | MWh |
 | $\pi^{in}_{\omega,t}$ | Grid import price | currency/MWh |
 | $\pi^{out}_{\omega,t}$ | Grid export price | currency/MWh |
+| $\overline G^{in},\overline G^{out}$ | Optional fixed grid import/export connection ratings | MW |
 | $I_{\omega,a,t}$ | Natural inflow to storage asset | MWh |
 | $\Delta t$ | Interval duration | h |
 | $\underline E_a,\overline E_a$ | Minimum and maximum stored energy | MWh |
@@ -161,7 +162,15 @@ $$
 0\le C_t\le R_t.
 $$
 
-Grid imports and exports are currently unbounded above. Input validation requires the export price not to exceed the import price in the base data, which suppresses direct buy-and-resell arbitrage under the current price construction.
+When configured, fixed grid-connection ratings impose
+
+$$
+G^{in}_{\omega,t}\le\overline G^{in}\Delta t,
+\qquad
+G^{out}_{\omega,t}\le\overline G^{out}\Delta t.
+$$
+
+The same bounds apply without the scenario index in deterministic mode. A zero rating represents a complete fixed outage, while an omitted rating preserves backward-compatible unlimited exchange. Input validation requires the export price not to exceed the import price in the base data, which suppresses direct buy-and-resell arbitrage under the current price construction.
 
 ## Stochastic extensive-form formulation
 
@@ -250,7 +259,7 @@ This process is model-predictive control. It creates feedback because every new 
 
 Closed-loop simulation evaluates deterministic and stochastic policies on the same realized scenario. At each interval, both policies receive their own resulting storage state but face identical realized demand, renewable production, prices, and inflows. This common-realization design prevents differences in exogenous conditions from being mistaken for differences in policy quality.
 
-The simulation layer distinguishes proposed and applied actions. A discharge is clipped when it would violate the asset's minimum energy. Energy above maximum capacity after an inflow is recorded as spill. Grid imports and exports then close the system balance. Because grid exchange is unlimited in the current simulation, load is not shed during realized execution; meaningful reliability comparisons require grid-capacity or outage constraints.
+The simulation layer distinguishes proposed and applied actions. A discharge is clipped when it would violate the asset's minimum energy. Energy above maximum capacity after an inflow is recorded as spill. Grid imports and exports then close the system balance subject to the same fixed capacities as the optimizer. A deficit beyond import capacity becomes unserved energy and incurs the shortage penalty. When export capacity binds, renewable output is curtailed first; a remaining surplus caused by planned discharge is resolved by reducing discharge and retaining energy in storage, with additional inflow spill only when required by the storage maximum.
 
 The optimizer and simulator use the same physical convention: realized natural inflow may be spilled, spill cannot exceed that interval's inflow, and spilled energy incurs the configured penalty. The optimizer chooses scenario-specific spill jointly with dispatch; the simulator records unavoidable overflow after applying the planned action. This alignment prevents artificial infeasibility when inflow exceeds available storage capacity and keeps policy cost comparisons consistent.
 
@@ -300,7 +309,7 @@ The automated test suite covers single-asset compatibility, multi-asset determin
 The following assumptions define the interpretation of present results:
 
 1. **Single electrical bus.** Storage location and transmission congestion are absent.
-2. **Unlimited grid connection.** Imports and exports have no capacity or availability limit.
+2. **Fixed grid connection.** Optional import/export ratings are constant across time and scenarios; time-varying availability and outage profiles are not yet represented.
 3. **Perfect deterministic forecasts.** Deterministic runs know the selected base trajectory over the look-ahead window.
 4. **Finite exogenous scenarios.** The stochastic model does not estimate or generate probability distributions.
 5. **Two-stage-style recourse.** Scenario information is not revealed through a general multistage tree.
@@ -320,13 +329,14 @@ These are model boundaries, not implementation details. A study conclusion shoul
 The first phase should improve the current MILP without changing its fundamental control architecture.
 
 1. **Completed 25 November 2026:** add an asset-specific stochastic spill variable, spill penalty, residual validation, scenario/asset reporting, simulation cost alignment, UI interpretation, and analytical regression tests.
-2. Add grid import and export capacities, availability profiles, and outage scenarios.
-3. Add asset-specific terminal energy values and document how they are calibrated.
-4. Add self-discharge, charge and discharge availability, and optional ramp limits.
-5. Add battery degradation costs, throughput accounting, and cycle constraints where relevant.
-6. Add optional reserve products and headroom constraints.
-7. Add energy risk modes such as conditional value at risk and worst-case scenario cost.
-8. Record application, solver, formulation, and data-schema versions in each run snapshot.
+2. **Completed 25 November 2026:** add optional fixed grid import/export capacities, outage representation through zero capacity, optimizer/simulator consistency, shortage and curtailment accounting, capacity diagnostics, UI interpretation, and analytical regression tests.
+3. Add time-varying grid availability profiles and scenario-specific outages.
+4. Add asset-specific terminal energy values and document how they are calibrated.
+5. Add self-discharge, charge and discharge availability, and optional ramp limits.
+6. Add battery degradation costs, throughput accounting, and cycle constraints where relevant.
+7. Add optional reserve products and headroom constraints.
+8. Add energy risk modes such as conditional value at risk and worst-case scenario cost.
+9. Record application, solver, formulation, and data-schema versions in each run snapshot.
 
 Completion criteria should include equations in this document, schema validation, result fields, independent residual checks, deterministic and stochastic unit tests, API tests, and a reproducible numerical example for every new physical mechanism.
 
@@ -408,6 +418,7 @@ For each upgrade:
 |---|---|---|---|
 | 2026-11-24 | Multi-asset baseline | Replaced the single storage asset with a portfolio indexed by asset; added per-asset state, limits, costs, inflows, rolling state, simulation trace, and scenario commitments | Backend test suite and frontend production build |
 | 2026-11-25 | Optimized spillage | Added bounded scenario- and asset-indexed spillage to the stochastic state transition and objective; aligned result extraction, simulation costs, UI reporting, and diagnostics | Analytical wet/dry regression tests, full backend suite, frontend production build, regenerated PDF |
+| 2026-11-25 | Fixed grid connection | Added optional import/export ratings to deterministic and stochastic dispatch; aligned closed-loop shortage, curtailment, cost, UI, and residual diagnostics | Binding import/export, half-hour scaling, stochastic capacity, and complete-outage regression tests |
 
 ## Implementation map
 

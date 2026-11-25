@@ -60,6 +60,8 @@ class EnergyProjectCreate(BaseModel):
     renewable_generation_mwh: list[float]
     grid_import_price_per_mwh: list[float]
     grid_export_price_per_mwh: list[float]
+    grid_import_capacity_mw: float | None = Field(default=None, ge=0)
+    grid_export_capacity_mw: float | None = Field(default=None, ge=0)
     shortage_penalty_per_mwh: float = Field(gt=0, default=10000)
     spill_penalty_per_mwh: float = Field(ge=0, default=0.01)
     terminal_energy_value_per_mwh: float = Field(ge=0, default=0)
@@ -281,6 +283,8 @@ class EnergySimulationStep(BaseModel):
     spilled_inflow_mwh: float
     grid_import_mwh: float
     grid_export_mwh: float
+    unserved_energy_mwh: float = 0
+    renewable_curtailment_mwh: float = 0
     period_cost: float
     storage_steps: list[StorageSimulationStep] = Field(default_factory=list)
 
@@ -292,6 +296,8 @@ class EnergySimulationPolicyResult(BaseModel):
     costs: EnergyCostBreakdown
     total_grid_import_mwh: float
     total_grid_export_mwh: float
+    total_unserved_mwh: float = 0
+    total_renewable_curtailment_mwh: float = 0
     total_charge_mwh: float
     total_discharge_mwh: float
     total_spilled_inflow_mwh: float

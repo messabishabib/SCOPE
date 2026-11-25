@@ -48,7 +48,7 @@ def simulate(project: EnergyProject, request: EnergySimulationRequest) -> Energy
         diagnostics={
             "execution": "receding horizon: optimize, apply first action, reveal realization, update state",
             "same_realized_path_for_all_policies": True,
-            "grid_assumption": "unlimited import/export; therefore no load shedding occurs in simulation v1",
+            "grid_assumption": "fixed import/export capacities are enforced when configured; deficits beyond import capacity are unserved",
         },
     )
 
@@ -139,13 +139,47 @@ def _execute_realized_step(
     total_charge = sum(x.applied_charge_power_mw for x in storage_steps)
     total_discharge = sum(x.applied_discharge_power_mw for x in storage_steps)
     net_grid_need = demand + total_charge * hours - renewable - total_discharge * hours
-    grid_import = max(0.0, net_grid_need)
-    grid_export = max(0.0, -net_grid_need)
+    import_limit = float("inf") if project.grid_import_capacity_mw is None else project.grid_import_capacity_mw * hours
+    export_limit = float("inf") if project.grid_export_capacity_mw is None else project.grid_export_capacity_mw * hours
+    grid_import = min(max(0.0, net_grid_need), import_limit)
+    unserved = max(0.0, net_grid_need - grid_import)
+    grid_export = min(max(0.0, -net_grid_need), export_limit)
+    renewable_curtailment = min(renewable, max(0.0, -net_grid_need - grid_export))
+
+    # A realized surplus can exceed both the export connection and available
+    # renewable curtailment. Reduce planned discharge so the executed action
+    # remains physically balanced, and retain the energy in storage (or spill
+    # additional realized inflow when the asset is already full).
+    remaining_surplus = max(0.0, -net_grid_need - grid_export - renewable_curtailment)
+    for step, storage in zip(storage_steps, project.storages):
+        if remaining_surplus <= 1e-9:
+            break
+        available_spill = max(0.0, step.realized_inflow_mwh - step.spilled_inflow_mwh)
+        storage_headroom = max(0.0, storage.energy_capacity_mwh - step.stored_energy_end_mwh)
+        reducible_energy = min(
+            step.applied_discharge_power_mw * hours,
+            (storage_headroom + available_spill) * storage.discharge_efficiency,
+        )
+        reduction = min(remaining_surplus, reducible_energy)
+        if reduction <= 0:
+            continue
+        step.applied_discharge_power_mw -= reduction / hours
+        retained_energy = reduction / storage.discharge_efficiency
+        overflow = max(0.0, step.stored_energy_end_mwh + retained_energy - storage.energy_capacity_mwh)
+        extra_spill = min(available_spill, overflow)
+        step.spilled_inflow_mwh += extra_spill
+        step.stored_energy_end_mwh = min(storage.energy_capacity_mwh, step.stored_energy_end_mwh + retained_energy - extra_spill)
+        step.action_adjusted = True
+        remaining_surplus -= reduction
+
+    total_discharge = sum(x.applied_discharge_power_mw for x in storage_steps)
+    total_spill = sum(x.spilled_inflow_mwh for x in storage_steps)
     period_cost = (
         grid_import * import_price
         - grid_export * export_price
         + sum(x.applied_charge_power_mw * hours * storage.variable_charge_cost_per_mwh + x.applied_discharge_power_mw * hours * storage.variable_discharge_cost_per_mwh for x, storage in zip(storage_steps, project.storages))
-        + sum(x.spilled_inflow_mwh for x in storage_steps) * project.spill_penalty_per_mwh
+        + unserved * project.shortage_penalty_per_mwh
+        + total_spill * project.spill_penalty_per_mwh
     )
     return EnergySimulationStep(
         period=period,
@@ -163,9 +197,11 @@ def _execute_realized_step(
         action_adjusted=any(x.action_adjusted for x in storage_steps),
         stored_energy_start_mwh=sum(x.stored_energy_start_mwh for x in storage_steps),
         stored_energy_end_mwh=sum(x.stored_energy_end_mwh for x in storage_steps),
-        spilled_inflow_mwh=sum(x.spilled_inflow_mwh for x in storage_steps),
+        spilled_inflow_mwh=total_spill,
         grid_import_mwh=grid_import,
         grid_export_mwh=grid_export,
+        unserved_energy_mwh=unserved,
+        renewable_curtailment_mwh=renewable_curtailment,
         period_cost=period_cost,
         storage_steps=storage_steps,
     )
@@ -179,10 +215,11 @@ def _summarize_policy(project, policy, steps, final_energies):
     charging_cost = sum(asset.applied_charge_power_mw * hours * storage_map[asset.storage_id].variable_charge_cost_per_mwh for step in steps for asset in step.storage_steps)
     discharging_cost = sum(asset.applied_discharge_power_mw * hours * storage_map[asset.storage_id].variable_discharge_cost_per_mwh for step in steps for asset in step.storage_steps)
     spillage_cost = sum(step.spilled_inflow_mwh for step in steps) * project.spill_penalty_per_mwh
+    shortage_cost = sum(step.unserved_energy_mwh for step in steps) * project.shortage_penalty_per_mwh
     # Value remaining water at the evaluation boundary so a policy cannot look
     # artificially cheap merely by emptying the reservoir before simulation ends.
     terminal_value = sum(final_energies.values()) * project.terminal_energy_value_per_mwh
-    total = grid_import_cost - export_revenue + charging_cost + discharging_cost + spillage_cost - terminal_value
+    total = grid_import_cost - export_revenue + charging_cost + discharging_cost + shortage_cost + spillage_cost - terminal_value
     statuses = {step.solve_status for step in steps}
     status = "optimal" if statuses == {"optimal"} else "feasible" if statuses <= {"optimal", "feasible"} else "failed"
     return EnergySimulationPolicyResult(
@@ -194,13 +231,15 @@ def _summarize_policy(project, policy, steps, final_energies):
             grid_export_revenue=export_revenue,
             charging=charging_cost,
             discharging=discharging_cost,
-            shortage=0.0,
+            shortage=shortage_cost,
             spillage=spillage_cost,
             terminal_value=terminal_value,
             total=total,
         ),
         total_grid_import_mwh=sum(step.grid_import_mwh for step in steps),
         total_grid_export_mwh=sum(step.grid_export_mwh for step in steps),
+        total_unserved_mwh=sum(step.unserved_energy_mwh for step in steps),
+        total_renewable_curtailment_mwh=sum(step.renewable_curtailment_mwh for step in steps),
         total_charge_mwh=sum(step.applied_charge_power_mw * hours for step in steps),
         total_discharge_mwh=sum(step.applied_discharge_power_mw * hours for step in steps),
         total_spilled_inflow_mwh=sum(step.spilled_inflow_mwh for step in steps),

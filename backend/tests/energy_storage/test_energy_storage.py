@@ -44,6 +44,35 @@ def test_charge_and_discharge_are_mutually_exclusive():
     assert all(min(x.charge_power_mw, x.discharge_power_mw) == pytest.approx(0) for x in result.periods)
 
 
+def test_grid_import_capacity_creates_unserved_energy_and_scales_with_interval_duration():
+    source = project(prices=(100, 100), demand=(10, 10))
+    source.interval_hours = 0.5
+    source.grid_import_capacity_mw = 8
+
+    result = solve(source)
+
+    assert result.status == "optimal"
+    assert all(period.grid_import_mwh <= 4 + 1e-6 for period in result.periods)
+    assert result.total_unserved_mwh == pytest.approx(12)
+    assert result.costs.shortage == pytest.approx(120000)
+    assert result.diagnostics["maximum_grid_import_limit_violation_mwh"] <= 1e-6
+    assert result.diagnostics["solution_validated"] is True
+
+
+def test_grid_export_capacity_forces_renewable_curtailment():
+    source = project(prices=(10, 10), demand=(0, 0), initial=10, terminal=10)
+    source.renewable_generation_mwh = [10, 0]
+    source.grid_export_price_per_mwh = [5, 0]
+    source.grid_export_capacity_mw = 3
+
+    result = solve(source)
+
+    assert result.periods[0].grid_export_mwh == pytest.approx(3)
+    assert result.periods[0].renewable_curtailment_mwh == pytest.approx(7)
+    assert result.diagnostics["maximum_grid_export_limit_violation_mwh"] <= 1e-6
+    assert result.diagnostics["solution_validated"] is True
+
+
 def test_multiple_storage_units_have_independent_dispatch_and_states():
     source = project(prices=(10, 100), demand=(20, 20))
     source.storages.append(StorageAsset(
@@ -138,6 +167,19 @@ def test_stochastic_model_shares_immediate_physical_decision():
     assert len(result.scenario_performance) == 2
     assert result.recommended_action is not None
     assert result.diagnostics["maximum_nonanticipativity_residual"] <= 1e-6
+    assert result.diagnostics["solution_validated"] is True
+
+
+def test_stochastic_model_enforces_grid_capacity_in_every_scenario():
+    source = stochastic_project()
+    source.grid_import_capacity_mw = 5
+
+    result = solve_stochastic(source, commitment_periods=1)
+
+    assert result.status == "optimal"
+    assert all(period.grid_import_mwh <= 5 + 1e-6 for period in result.periods)
+    assert result.total_unserved_mwh > 0
+    assert result.diagnostics["maximum_grid_import_limit_violation_mwh"] <= 1e-6
     assert result.diagnostics["solution_validated"] is True
 
 
@@ -259,6 +301,55 @@ def test_simulation_charges_realized_spill_consistently_with_the_optimizer():
         assert policy.costs.spillage == pytest.approx(5)
         assert policy.costs.total == pytest.approx(5)
         assert policy.steps[0].period_cost == pytest.approx(5)
+
+
+def test_simulation_enforces_grid_outage_and_prices_unserved_energy():
+    source = stochastic_project()
+    source.grid_import_capacity_mw = 0
+    source.storages[0].initial_energy_mwh = 0
+
+    result = simulate(source, EnergySimulationRequest(
+        policies=[EnergyPlanningMode.deterministic],
+        realized_scenario_id="normal",
+        horizon_periods=1,
+        lookahead_periods=1,
+    ))
+
+    policy = result.policy_results[0]
+    step = policy.steps[0]
+    assert step.grid_import_mwh == pytest.approx(0)
+    assert step.unserved_energy_mwh == pytest.approx(10)
+    assert policy.total_unserved_mwh == pytest.approx(10)
+    assert policy.costs.shortage == pytest.approx(100000)
+    assert policy.costs.total == pytest.approx(step.period_cost)
+
+
+def test_simulation_clips_discharge_when_realized_surplus_cannot_be_exported():
+    source = project(prices=(100, 100), demand=(10, 10), initial=10)
+    source.grid_export_capacity_mw = 0
+    source.scenarios = [EnergyScenario(
+        id="zero-demand",
+        name="Zero realized demand",
+        probability=1,
+        demand_multiplier=[0, 1],
+        renewable_multiplier=[1, 1],
+        price_multiplier=[1, 1],
+        natural_inflow_mwh=[0, 0],
+    )]
+
+    result = simulate(source, EnergySimulationRequest(
+        policies=[EnergyPlanningMode.deterministic],
+        realized_scenario_id="zero-demand",
+        horizon_periods=1,
+        lookahead_periods=1,
+    ))
+
+    step = result.policy_results[0].steps[0]
+    assert step.planned_discharge_power_mw == pytest.approx(10)
+    assert step.applied_discharge_power_mw == pytest.approx(0)
+    assert step.grid_export_mwh == pytest.approx(0)
+    assert step.stored_energy_end_mwh == pytest.approx(10)
+    assert step.action_adjusted is True
 
 
 def test_energy_simulation_api_runs_in_background():

@@ -15,7 +15,8 @@ def energy_demo_project() -> EnergyProject:
             initial_energy_mwh=32, terminal_energy_minimum_mwh=24, maximum_charge_power_mw=35, maximum_discharge_power_mw=35,
             charge_efficiency=.96, discharge_efficiency=.96, variable_charge_cost_per_mwh=.5, variable_discharge_cost_per_mwh=.8)],
         demand_mwh=demand, renewable_generation_mwh=renewable, grid_import_price_per_mwh=import_price,
-        grid_export_price_per_mwh=[max(0, p - 8) for p in import_price], shortage_penalty_per_mwh=5000, terminal_energy_value_per_mwh=35,
+        grid_export_price_per_mwh=[max(0, p - 8) for p in import_price], grid_import_capacity_mw=95,
+        grid_export_capacity_mw=50, shortage_penalty_per_mwh=5000, terminal_energy_value_per_mwh=35,
         scenarios=[
             EnergyScenario(id="expected-day", name="Expected day", probability=.55, demand_multiplier=[1]*24, renewable_multiplier=[1]*24, price_multiplier=[1]*24, natural_inflow_mwh=[0]*24),
             EnergyScenario(id="evening-stress", name="Evening demand stress", probability=.25, demand_multiplier=[1]*15+[1.18]*6+[1]*3, renewable_multiplier=[1]*16+[.65]*8, price_multiplier=[1]*16+[1.25]*5+[1]*3, natural_inflow_mwh=[0]*24),

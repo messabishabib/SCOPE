@@ -34,6 +34,10 @@ def add_energy_balance_constraints(model, data, scenarios) -> None:
 
     model.energy_balance = Constraint(model.SCENARIOS, model.PERIODS, rule=balance)
     model.renewable_curtailment_limit = Constraint(model.SCENARIOS, model.PERIODS, rule=lambda m, s, t: m.renewable_curtailment_mwh[s, t] <= renewable(data, scenarios[s], t))
+    if data.grid_import_capacity_mw is not None:
+        model.grid_import_limit = Constraint(model.SCENARIOS, model.PERIODS, rule=lambda m, s, t: m.grid_import_mwh[s, t] <= data.grid_import_capacity_mw * hours)
+    if data.grid_export_capacity_mw is not None:
+        model.grid_export_limit = Constraint(model.SCENARIOS, model.PERIODS, rule=lambda m, s, t: m.grid_export_mwh[s, t] <= data.grid_export_capacity_mw * hours)
 
 
 def add_storage_constraints(model, data, scenarios) -> None:
