@@ -1,0 +1,9 @@
+import {ArrowRight,BatteryCharging,Boxes,ChartNoAxesCombined,RefreshCw} from 'lucide-react'
+
+export function DecisionHub({openCapacity,openEnergy}:{openCapacity:()=>void;openEnergy:()=>void}){
+ return <div className="module-home"><section className="hub-hero"><div><span className="eyebrow">SCOPE DECISION SUPPORT</span><h2>Choose the decision problem before choosing the model.</h2><p>Each module has its own data, optimization logic, results, and operational workflow. This keeps strategic capacity decisions separate from dynamic energy dispatch.</p></div><ChartNoAxesCombined/></section>
+  <div className="module-cards"><article className="module-card capacity-module"><div className="module-icon"><Boxes/></div><span>STRATEGIC & TACTICAL PLANNING</span><h3>Capacity Planning</h3><p>Allocate resources, activate additional capacity, test demand scenarios, and balance cost against service performance over a multi-period horizon.</p><ul><li>Resource and demand planning</li><li>Expansion and activation decisions</li><li>Expected, risk-aware, and protected plans</li></ul><button onClick={openCapacity}>Open Capacity Planning <ArrowRight/></button></article>
+   <article className="module-card energy-module"><div className="module-icon"><BatteryCharging/></div><span>DYNAMIC OPERATIONS</span><h3>Energy Storage</h3><p>Schedule pumping and generation, manage reservoir state, account for uncertain future conditions, and compare policies in closed-loop simulation.</p><ul><li>Deterministic and stochastic dispatch</li><li>Rolling-horizon decisions</li><li>Policy simulation on realized paths</li></ul><button onClick={openEnergy}>Open Energy Storage <ArrowRight/></button></article></div>
+  <section className="decision-guide"><RefreshCw/><div><span>HOW THE MODULES DIFFER</span><h3>Capacity Planning decides what capability should be available. Energy Storage decides how a stateful asset should operate over time.</h3></div></section>
+ </div>
+}

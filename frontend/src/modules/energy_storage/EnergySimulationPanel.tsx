@@ -1,0 +1,30 @@
+import {useEffect,useState} from 'react'
+import {useMutation,useQuery} from '@tanstack/react-query'
+import {BatteryCharging,Play,RefreshCw} from 'lucide-react'
+import {CartesianGrid,Legend,Line,LineChart,ResponsiveContainer,Tooltip,XAxis,YAxis} from 'recharts'
+import {api} from '../../shared/services/api'
+import type {EnergyProject,EnergySimulationRun} from '../../shared/types'
+
+const money=(n:number,c:string)=>new Intl.NumberFormat('en',{style:'currency',currency:c,maximumFractionDigits:0}).format(n)
+const policyName=(mode:string)=>mode==='stochastic'?'Scenario-based policy':'Deterministic policy'
+
+export function EnergySimulationPanel({project}:{project:EnergyProject}){
+ const [run,setRun]=useState<EnergySimulationRun|null>(null)
+ const [scenarioId,setScenarioId]=useState(project.scenarios[0]?.id??'')
+ const [horizon,setHorizon]=useState(Math.min(12,project.number_of_periods))
+ const [lookahead,setLookahead]=useState(Math.min(8,project.number_of_periods))
+ const launch=useMutation({mutationFn:()=>api.simulateEnergy(project.id,{policies:['deterministic','stochastic'],realized_scenario_id:scenarioId||null,start_period:0,horizon_periods:horizon,current_energy_mwh_by_storage:Object.fromEntries(project.storages.map(storage=>[storage.id,storage.initial_energy_mwh])),lookahead_periods:lookahead,commitment_periods:1}),onSuccess:setRun})
+ const active=useQuery({queryKey:['energy-simulation',run?.id],queryFn:()=>api.getEnergySimulation(run!.id),enabled:!!run&&['queued','running'].includes(run.status),refetchInterval:700})
+ useEffect(()=>{if(active.data)setRun(active.data)},[active.data])
+ const result=run?.result
+ const chart=Array.from({length:result?.horizon_periods??0},(_,index)=>{const row:{period:string;demand?:number;renewable?:number;[key:string]:number|string|undefined}={period:`H${(result?.start_period??0)+index+1}`};result?.policy_results.forEach(policy=>{const step=policy.steps[index];if(step){row.demand=step.realized_demand_mwh;row.renewable=step.realized_renewable_mwh;row[`${policy.planning_mode} storage`]=step.stored_energy_end_mwh}});return row})
+ return <section className="card simulation-panel"><div className="card-head"><div><span>CLOSED-LOOP SIMULATION</span><h3>Test policies against realized operations</h3><p>Re-optimize each period, apply only the first action, reveal actual conditions, and update the reservoir state.</p></div><RefreshCw/></div>
+  <div className="simulation-controls"><label>Realized path<select value={scenarioId} onChange={e=>setScenarioId(e.target.value)}>{project.scenarios.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label><label>Simulated periods<input type="number" min="1" max={project.number_of_periods} value={horizon} onChange={e=>setHorizon(Math.min(project.number_of_periods,Math.max(1,+e.target.value)))}/></label><label>Look-ahead<input type="number" min="1" max={project.number_of_periods} value={lookahead} onChange={e=>setLookahead(Math.min(project.number_of_periods,Math.max(1,+e.target.value)))}/></label><button className="primary" disabled={launch.isPending||run?.status==='queued'||run?.status==='running'||!project.scenarios.length} onClick={()=>launch.mutate()}><Play/>{run&&['queued','running'].includes(run.status)?'Simulating…':'Compare policies'}</button></div>
+  {run?.error&&<div className="error">Simulation failed: {run.error}</div>}
+  {result&&<><div className="simulation-summary">{result.policy_results.map(policy=><article key={policy.planning_mode}><span>{policyName(policy.planning_mode)}</span><strong>{money(policy.costs.total,project.currency)}</strong><small>{policy.total_grid_import_mwh.toFixed(1)} MWh imported · final storage {policy.final_energy_mwh.toFixed(1)} MWh</small></article>)}</div>
+   <div className="simulation-grid"><div><ResponsiveContainer width="100%" height={260}><LineChart data={chart}><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="period"/><YAxis/><Tooltip/><Legend/><Line type="monotone" dataKey="deterministic storage" stroke="#315f87" strokeWidth={2}/><Line type="monotone" dataKey="stochastic storage" stroke="#28a582" strokeWidth={2}/><Line type="monotone" dataKey="demand" stroke="#d4843a" strokeDasharray="4 3" dot={false}/></LineChart></ResponsiveContainer></div>
+   <div className="table-scroll"><table><thead><tr><th>Policy</th><th>Cost</th><th>Charge</th><th>Discharge</th><th>Grid import</th><th>Solver time</th></tr></thead><tbody>{result.policy_results.map(policy=><tr key={policy.planning_mode}><td><b>{policyName(policy.planning_mode)}</b></td><td>{money(policy.costs.total,project.currency)}</td><td>{policy.total_charge_mwh.toFixed(1)} MWh</td><td>{policy.total_discharge_mwh.toFixed(1)} MWh</td><td>{policy.total_grid_import_mwh.toFixed(1)} MWh</td><td>{policy.solver_runtime_seconds.toFixed(2)}s</td></tr>)}</tbody></table></div></div>
+   <details className="simulation-trace"><summary>Inspect the period-by-period execution trace</summary>{result.policy_results.map(policy=><div key={policy.planning_mode}><h4>{policyName(policy.planning_mode)}</h4><div className="table-scroll"><table><thead><tr><th>Period</th><th>Start MWh</th><th>Unit actions</th><th>Actual demand</th><th>Actual renewable</th><th>Grid import</th><th>End MWh</th><th>Cost</th></tr></thead><tbody>{policy.steps.map(step=><tr key={step.period}><td>H{step.period+1}</td><td>{step.stored_energy_start_mwh.toFixed(1)}</td><td>{step.storage_steps.map(asset=><div key={asset.storage_id}><b>{asset.storage_name}</b>: +{asset.applied_charge_power_mw.toFixed(1)} / −{asset.applied_discharge_power_mw.toFixed(1)} MW</div>)}</td><td>{step.realized_demand_mwh.toFixed(1)}</td><td>{step.realized_renewable_mwh.toFixed(1)}</td><td>{step.grid_import_mwh.toFixed(1)}</td><td>{step.stored_energy_end_mwh.toFixed(1)}</td><td>{money(step.period_cost,project.currency)}</td></tr>)}</tbody></table></div></div>)}</details></>}
+  {!result&&!run?.error&&<div className="empty simulation-empty"><BatteryCharging/><p>Select a realized scenario and compare both policies on the same operating path.</p></div>}
+ </section>
+}

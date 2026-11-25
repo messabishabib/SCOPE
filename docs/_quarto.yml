@@ -1,0 +1,24 @@
+project:
+  type: default
+  output-dir: _build
+  render:
+    - energy-storage-model-and-roadmap.md
+
+format:
+  html:
+    theme: cosmo
+    css: energy-storage-pdf.css
+    toc: true
+    toc-title: Contents
+    toc-depth: 3
+    toc-location: body
+    number-sections: true
+    number-depth: 3
+    html-math-method: mathjax
+    embed-resources: true
+    code-copy: false
+    anchor-sections: false
+    smooth-scroll: false
+    link-external-newwindow: false
+
+lang: en
