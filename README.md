@@ -75,7 +75,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Frontend (Node 20+), in another terminal:
+Frontend (Node 24+), in another terminal:
 
 ```bash
 cd frontend
