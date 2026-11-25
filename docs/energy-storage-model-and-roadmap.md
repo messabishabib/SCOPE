@@ -2,11 +2,11 @@
 title: "Energy Storage Optimization Model and Scientific Development Roadmap"
 subtitle: "Current Formulation, Validation Framework, and Upgrade Path"
 author: "SCOPE Decision Support Platform"
-date: "2026-11-24"
+date: "2026-11-25"
 date-format: "D MMMM YYYY"
 ---
 
-**Model baseline:** multi-asset implementation, 24 November 2026  
+**Model baseline:** multi-asset stochastic dispatch with optimized inflow spillage, 25 November 2026
 **Audience:** developers, model reviewers, energy-system analysts, and future contributors  
 **Purpose:** define the implemented mathematical model, explain how it is solved and validated, and establish a controlled path toward a multistage dynamic model.
 
@@ -31,6 +31,7 @@ The current scope includes:
 - renewable generation and curtailment;
 - unserved energy with a penalty;
 - asset-specific natural inflows in stochastic studies;
+- asset- and scenario-specific optimized inflow spillage with an explicit penalty;
 - rolling-horizon reoptimization from observed asset states;
 - closed-loop comparison of deterministic and stochastic policies;
 - independent post-solve validation of the principal physical equations.
@@ -65,6 +66,7 @@ All assets are currently connected to the same unconstrained electrical bus. The
 | $\eta^{ch}_a,\eta^{dis}_a$ | Charge and discharge efficiencies | ratio |
 | $c^{ch}_a,c^{dis}_a$ | Variable storage operating costs | currency/MWh |
 | $c^U$ | Unserved-energy penalty | currency/MWh |
+| $c^S$ | Inflow-spillage penalty | currency/MWh |
 | $v^E$ | Terminal value of stored energy | currency/MWh |
 | $p_\omega$ | Normalized scenario probability | ratio |
 
@@ -82,6 +84,7 @@ The implemented terminal value $v^E$ is common to all assets. Asset-specific ter
 | $G^{out}_{\omega,t}$ | Grid exports | nonnegative continuous |
 | $U_{\omega,t}$ | Unserved energy | nonnegative continuous |
 | $C_{\omega,t}$ | Renewable curtailment | nonnegative continuous |
+| $S_{\omega,a,t}$ | Spilled natural inflow | nonnegative continuous |
 
 The deterministic model is obtained by removing the scenario index.
 
@@ -176,7 +179,30 @@ $$
 \min \sum_{\omega\in\Omega}p_\omega Q_\omega,
 $$
 
-where $Q_\omega$ contains the same cost components as the deterministic objective, evaluated using scenario-specific decisions and data.
+where $Q_\omega$ contains the same cost components as the deterministic objective, evaluated using scenario-specific decisions and data, plus the spillage cost
+
+$$
+c^S\sum_{a\in\mathcal A}\sum_{t\in\mathcal T}S_{\omega,a,t}.
+$$
+
+### Natural inflow and optimized spillage
+
+For every scenario, asset, and interval, the stochastic storage transition is
+
+$$
+E_{\omega,a,t+1}=E_{\omega,a,t}
++\eta^{ch}_aP^{ch}_{\omega,a,t}\Delta t
+-\frac{P^{dis}_{\omega,a,t}\Delta t}{\eta^{dis}_a}
++I_{\omega,a,t}-S_{\omega,a,t},
+$$
+
+with
+
+$$
+0\le S_{\omega,a,t}\le I_{\omega,a,t}.
+$$
+
+Spillage is scenario-dependent recourse: it is chosen after the corresponding inflow realization and is not constrained by the charge/discharge nonanticipativity window. The upper bound prevents the model from discarding previously stored energy under the label of spill. A configurable nonnegative penalty, `spill_penalty_per_mwh`, discourages avoidable spill and makes its economic effect explicit. Its default value is small (0.01 currency/MWh), so it primarily breaks ties without overstating the cost of unavoidable overflow.
 
 The energy module currently optimizes expected cost only. It does not yet expose conditional value at risk, expected-shortfall constraints, or worst-case energy objectives analogous to the risk modes in the capacity-planning module.
 
@@ -226,7 +252,7 @@ Closed-loop simulation evaluates deterministic and stochastic policies on the sa
 
 The simulation layer distinguishes proposed and applied actions. A discharge is clipped when it would violate the asset's minimum energy. Energy above maximum capacity after an inflow is recorded as spill. Grid imports and exports then close the system balance. Because grid exchange is unlimited in the current simulation, load is not shed during realized execution; meaningful reliability comparisons require grid-capacity or outage constraints.
 
-The optimizer and simulator currently treat inflow overflow differently. Simulation explicitly spills excess inflow, whereas the stochastic optimization model has no spill variable. A sufficiently large modeled inflow can therefore make the optimization problem infeasible even though the physical system could spill water. Adding optimized spill is a high-priority correction.
+The optimizer and simulator use the same physical convention: realized natural inflow may be spilled, spill cannot exceed that interval's inflow, and spilled energy incurs the configured penalty. The optimizer chooses scenario-specific spill jointly with dispatch; the simulator records unavoidable overflow after applying the planned action. This alignment prevents artificial infeasibility when inflow exceeds available storage capacity and keeps policy cost comparisons consistent.
 
 ## Computational solution
 
@@ -261,12 +287,13 @@ The implementation independently recomputes:
 - simultaneous charge and discharge for each asset;
 - terminal-requirement margins;
 - stochastic nonanticipativity residuals.
+- spill upper-bound violations and spill-inclusive storage-transition residuals.
 
 A result is marked validated only when the measured residuals fall within tolerance. Solver optimality and equation validation answer different questions: solver status describes the optimization algorithm's termination, while residual validation checks whether the interpreted solution respects the modeled physics.
 
 Every asynchronous run stores a complete project and request snapshot. This makes the numerical input to a historical run reproducible even if the project is edited later. Reproducibility still depends on recording software and solver versions when studies are used for formal comparison; version metadata is a recommended addition.
 
-The automated test suite covers single-asset compatibility, multi-asset deterministic dispatch, stochastic nonanticipativity, asset-specific inflows, rolling state replacement, closed-loop state continuity, background API execution, and result validation.
+The automated test suite covers single-asset compatibility, multi-asset deterministic dispatch, stochastic nonanticipativity, asset-specific inflows, exact wet/dry spill accounting, spill-cost consistency in closed-loop simulation, rolling state replacement, closed-loop state continuity, background API execution, and result validation.
 
 ## Current assumptions and limitations
 
@@ -278,12 +305,11 @@ The following assumptions define the interpretation of present results:
 4. **Finite exogenous scenarios.** The stochastic model does not estimate or generate probability distributions.
 5. **Two-stage-style recourse.** Scenario information is not revealed through a general multistage tree.
 6. **Expected-cost risk preference.** Tail risk and robust objectives are absent from the energy module.
-7. **No optimized spill.** Natural inflow can create stochastic-model infeasibility when capacity is insufficient.
-8. **No degradation or cycling limits.** Battery aging, cycle budgets, and state-dependent efficiency are absent.
-9. **No self-discharge, ramping, or minimum operating duration.** Power can change freely between intervals within its static limit.
-10. **No reserves or ancillary services.** Storage earns value only through the modeled energy balance and terminal energy.
-11. **Common terminal energy value.** Technology-specific and state-dependent opportunity values are absent.
-12. **Constant interval duration.** One $\Delta t$ applies throughout a study.
+7. **No degradation or cycling limits.** Battery aging, cycle budgets, and state-dependent efficiency are absent.
+8. **No self-discharge, ramping, or minimum operating duration.** Power can change freely between intervals within its static limit.
+9. **No reserves or ancillary services.** Storage earns value only through the modeled energy balance and terminal energy.
+10. **Common terminal energy value.** Technology-specific and state-dependent opportunity values are absent.
+11. **Constant interval duration.** One $\Delta t$ applies throughout a study.
 
 These are model boundaries, not implementation details. A study conclusion should not rely on a phenomenon that the formulation does not represent.
 
@@ -293,7 +319,7 @@ These are model boundaries, not implementation details. A study conclusion shoul
 
 The first phase should improve the current MILP without changing its fundamental control architecture.
 
-1. Add an asset-specific spill variable to stochastic optimization and penalize or report spilled energy.
+1. **Completed 25 November 2026:** add an asset-specific stochastic spill variable, spill penalty, residual validation, scenario/asset reporting, simulation cost alignment, UI interpretation, and analytical regression tests.
 2. Add grid import and export capacities, availability profiles, and outage scenarios.
 3. Add asset-specific terminal energy values and document how they are calibrated.
 4. Add self-discharge, charge and discharge availability, and optional ramp limits.
@@ -381,6 +407,7 @@ For each upgrade:
 | Date | Model version | Change | Validation evidence |
 |---|---|---|---|
 | 2026-11-24 | Multi-asset baseline | Replaced the single storage asset with a portfolio indexed by asset; added per-asset state, limits, costs, inflows, rolling state, simulation trace, and scenario commitments | Backend test suite and frontend production build |
+| 2026-11-25 | Optimized spillage | Added bounded scenario- and asset-indexed spillage to the stochastic state transition and objective; aligned result extraction, simulation costs, UI reporting, and diagnostics | Analytical wet/dry regression tests, full backend suite, frontend production build, regenerated PDF |
 
 ## Implementation map
 

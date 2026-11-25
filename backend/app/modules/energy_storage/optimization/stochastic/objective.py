@@ -13,6 +13,7 @@ def define_expected_cost_objective(model, data, scenarios, probabilities) -> Non
             - m.grid_export_mwh[s, t] * export_price(data, scenarios[s], t)
             + sum(m.charge_power_mw[s, a, t] * hours * storages[a].variable_charge_cost_per_mwh + m.discharge_power_mw[s, a, t] * hours * storages[a].variable_discharge_cost_per_mwh for a in m.STORAGES)
             + m.unserved_energy_mwh[s, t] * data.shortage_penalty_per_mwh
+            + sum(m.spilled_inflow_mwh[s, a, t] for a in m.STORAGES) * data.spill_penalty_per_mwh
             for t in m.PERIODS)
         return operations - sum(m.stored_energy_mwh[s, a, data.number_of_periods] for a in m.STORAGES) * data.terminal_energy_value_per_mwh
 

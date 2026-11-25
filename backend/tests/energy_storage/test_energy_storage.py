@@ -100,6 +100,38 @@ def stochastic_project():
     return base
 
 
+def spill_project():
+    source = EnergyProject(
+        name="spill test",
+        number_of_periods=1,
+        interval_hours=1,
+        currency="EUR",
+        storage=StorageAsset(
+            id="reservoir",
+            name="Reservoir",
+            energy_capacity_mwh=10,
+            initial_energy_mwh=10,
+            terminal_energy_minimum_mwh=0,
+            maximum_charge_power_mw=10,
+            maximum_discharge_power_mw=10,
+            charge_efficiency=1,
+            discharge_efficiency=1,
+            variable_discharge_cost_per_mwh=10,
+        ),
+        demand_mwh=[0],
+        renewable_generation_mwh=[0],
+        grid_import_price_per_mwh=[0],
+        grid_export_price_per_mwh=[0],
+        shortage_penalty_per_mwh=10000,
+        spill_penalty_per_mwh=1,
+        scenarios=[
+            EnergyScenario(id="dry", name="Dry", probability=.5, demand_multiplier=[1], renewable_multiplier=[1], price_multiplier=[1], natural_inflow_mwh=[0]),
+            EnergyScenario(id="wet", name="Wet", probability=.5, demand_multiplier=[1], renewable_multiplier=[1], price_multiplier=[1], natural_inflow_mwh=[5]),
+        ],
+    )
+    return source
+
+
 def test_stochastic_model_shares_immediate_physical_decision():
     result = solve_stochastic(stochastic_project(), commitment_periods=1)
     assert result.status == "optimal"
@@ -124,6 +156,24 @@ def test_stochastic_portfolio_supports_asset_specific_inflows_and_commitments():
     assert result.diagnostics["maximum_nonanticipativity_residual"] <= 1e-6
     assert len(result.recommended_action.storage_actions) == 2
     assert all(set(performance.terminal_energy_mwh_by_storage) == {storage.id for storage in source.storages} for performance in result.scenario_performance)
+
+
+def test_stochastic_spill_is_bounded_costed_and_reported_by_scenario_and_storage():
+    result = solve_stochastic(spill_project(), commitment_periods=1)
+
+    assert result.status == "optimal"
+    assert result.total_spilled_inflow_mwh == pytest.approx(2.5)
+    assert result.periods[0].spilled_inflow_mwh == pytest.approx(2.5)
+    assert result.periods[0].storage_dispatches[0].spilled_inflow_mwh == pytest.approx(2.5)
+    performance = {item.scenario_id: item for item in result.scenario_performance}
+    assert performance["dry"].total_spilled_inflow_mwh == pytest.approx(0)
+    assert performance["wet"].total_spilled_inflow_mwh == pytest.approx(5)
+    assert performance["wet"].spilled_inflow_mwh_by_storage == pytest.approx({"reservoir": 5})
+    assert result.costs.spillage == pytest.approx(2.5)
+    assert result.costs.total == pytest.approx(2.5)
+    assert result.objective_value == pytest.approx(result.costs.total)
+    assert result.diagnostics["maximum_spill_limit_violation_mwh"] <= 1e-6
+    assert result.diagnostics["solution_validated"] is True
 
 
 def test_rolling_horizon_updates_each_storage_state():
@@ -192,6 +242,23 @@ def test_simulation_reoptimizes_and_updates_state_on_the_same_realized_path():
         assert current == pytest.approx(previous)
     assert deterministic.costs.total == pytest.approx(sum(step.period_cost for step in deterministic.steps))
     assert result.diagnostics["same_realized_path_for_all_policies"] is True
+
+
+def test_simulation_charges_realized_spill_consistently_with_the_optimizer():
+    source = spill_project()
+    result = simulate(source, EnergySimulationRequest(
+        policies=[EnergyPlanningMode.deterministic, EnergyPlanningMode.stochastic],
+        realized_scenario_id="wet",
+        horizon_periods=1,
+        lookahead_periods=1,
+    ))
+
+    for policy in result.policy_results:
+        assert policy.total_spilled_inflow_mwh == pytest.approx(5)
+        assert policy.steps[0].spilled_inflow_mwh == pytest.approx(5)
+        assert policy.costs.spillage == pytest.approx(5)
+        assert policy.costs.total == pytest.approx(5)
+        assert policy.steps[0].period_cost == pytest.approx(5)
 
 
 def test_energy_simulation_api_runs_in_background():

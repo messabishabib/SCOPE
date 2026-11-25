@@ -36,6 +36,7 @@ All physical storage variables and constraints below are applied for every `a �
 | `Eᴴ_min` | `terminal_energy_minimum_mwh` | MWh | Required final energy |
 | `P̄ᶜ`, `P̄ᵈ` | maximum charge/discharge power | MW | Pump and turbine limits |
 | `ηᶜ`, `ηᵈ` | charge/discharge efficiency | ratio | Conversion efficiencies |
+| `cˢ` | `spill_penalty_per_mwh` | currency/MWh | Penalty for spilled natural inflow |
 
 ## Decision variables
 
@@ -131,7 +132,19 @@ The objective minimizes probability-weighted system cost:
 min Σω pω Costω
 ```
 
-Demand, renewable production, prices, and natural inflows may differ by scenario. The physical charging and discharging actions in the configured commitment window are made before uncertainty is revealed:
+Demand, renewable production, prices, and natural inflows may differ by scenario.
+
+For asset-specific inflow `I_{ω,a,t}`, optimized spill `S_{ω,a,t}` enters the state transition as:
+
+```text
+E_{ω,a,t+1} = E_{ω,a,t} + ηᶜ Pᶜ_{ω,a,t} Δt
+              - Pᵈ_{ω,a,t} Δt / ηᵈ + I_{ω,a,t} - S_{ω,a,t}
+0 ≤ S_{ω,a,t} ≤ I_{ω,a,t}
+```
+
+Scenario cost includes `cˢ S_{ω,a,t}`. Spill is scenario-dependent recourse and is not shared by the nonanticipativity constraints.
+
+The physical charging and discharging actions in the configured commitment window are made before uncertainty is revealed:
 
 ```text
 Pᶜ_{ω,t} = Pᶜ_{ω₀,t}
@@ -180,7 +193,7 @@ Each period records:
 
 ```text
 import price * grid import - export price * grid export
-+ variable charge cost + variable discharge cost
++ variable charge cost + variable discharge cost + spill penalty * spilled inflow
 ```
 
 Remaining stored energy is valued at the simulation boundary. This prevents a policy from appearing artificially cheap simply because it empties the reservoir before the evaluation ends. Because the current grid connection is unlimited, simulation v1 does not shed load; a grid-capacity or outage model is required before unserved-energy reliability comparisons are meaningful.

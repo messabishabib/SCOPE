@@ -61,6 +61,7 @@ class EnergyProjectCreate(BaseModel):
     grid_import_price_per_mwh: list[float]
     grid_export_price_per_mwh: list[float]
     shortage_penalty_per_mwh: float = Field(gt=0, default=10000)
+    spill_penalty_per_mwh: float = Field(ge=0, default=0.01)
     terminal_energy_value_per_mwh: float = Field(ge=0, default=0)
     scenarios: list[EnergyScenario] = Field(default_factory=list)
 
@@ -139,6 +140,7 @@ class StoragePeriodResult(BaseModel):
     discharge_power_mw: float
     stored_energy_start_mwh: float
     stored_energy_end_mwh: float
+    spilled_inflow_mwh: float = 0
 
 
 class EnergyPeriodResult(BaseModel):
@@ -154,6 +156,7 @@ class EnergyPeriodResult(BaseModel):
     grid_export_mwh: float
     unserved_energy_mwh: float
     renewable_curtailment_mwh: float
+    spilled_inflow_mwh: float = 0
     storage_dispatches: list[StoragePeriodResult] = Field(default_factory=list)
 
 
@@ -163,6 +166,7 @@ class EnergyCostBreakdown(BaseModel):
     charging: float
     discharging: float
     shortage: float
+    spillage: float = 0
     terminal_value: float
     total: float
 
@@ -175,6 +179,8 @@ class EnergyScenarioPerformance(BaseModel):
     total_unserved_mwh: float
     terminal_energy_mwh: float
     terminal_energy_mwh_by_storage: dict[str, float] = Field(default_factory=dict)
+    total_spilled_inflow_mwh: float = 0
+    spilled_inflow_mwh_by_storage: dict[str, float] = Field(default_factory=dict)
 
 
 class StorageRecommendedAction(BaseModel):
@@ -200,6 +206,7 @@ class EnergyOptimizationResult(BaseModel):
     costs: EnergyCostBreakdown
     total_unserved_mwh: float
     renewable_curtailment_mwh: float
+    total_spilled_inflow_mwh: float = 0
     planning_mode: EnergyPlanningMode = EnergyPlanningMode.deterministic
     start_period: int = 0
     recommended_action: EnergyRecommendedAction | None = None

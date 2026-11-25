@@ -26,7 +26,7 @@ def solve(data: EnergyProject, time_limit_seconds: int = 60) -> EnergyOptimizati
     runtime = time.perf_counter() - started
     diagnostics = {"solver": "HiGHS", "termination_condition": str(termination), "solver_status": str(outcome.solver.status)}
     if status in {"infeasible", "unbounded", "error"}:
-        zero = EnergyCostBreakdown(grid_import=0, grid_export_revenue=0, charging=0, discharging=0, shortage=0, terminal_value=0, total=0)
+        zero = EnergyCostBreakdown(grid_import=0, grid_export_revenue=0, charging=0, discharging=0, shortage=0, spillage=0, terminal_value=0, total=0)
         return EnergyOptimizationResult(status=status, objective_value=None, solver_runtime_seconds=runtime, periods=[], costs=zero, total_unserved_mwh=0, renewable_curtailment_mwh=0, diagnostics=diagnostics)
     return extract_result(model, data, status, runtime, diagnostics)
 

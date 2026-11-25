@@ -145,6 +145,7 @@ def _execute_realized_step(
         grid_import * import_price
         - grid_export * export_price
         + sum(x.applied_charge_power_mw * hours * storage.variable_charge_cost_per_mwh + x.applied_discharge_power_mw * hours * storage.variable_discharge_cost_per_mwh for x, storage in zip(storage_steps, project.storages))
+        + sum(x.spilled_inflow_mwh for x in storage_steps) * project.spill_penalty_per_mwh
     )
     return EnergySimulationStep(
         period=period,
@@ -177,10 +178,11 @@ def _summarize_policy(project, policy, steps, final_energies):
     storage_map = {storage.id: storage for storage in project.storages}
     charging_cost = sum(asset.applied_charge_power_mw * hours * storage_map[asset.storage_id].variable_charge_cost_per_mwh for step in steps for asset in step.storage_steps)
     discharging_cost = sum(asset.applied_discharge_power_mw * hours * storage_map[asset.storage_id].variable_discharge_cost_per_mwh for step in steps for asset in step.storage_steps)
+    spillage_cost = sum(step.spilled_inflow_mwh for step in steps) * project.spill_penalty_per_mwh
     # Value remaining water at the evaluation boundary so a policy cannot look
     # artificially cheap merely by emptying the reservoir before simulation ends.
     terminal_value = sum(final_energies.values()) * project.terminal_energy_value_per_mwh
-    total = grid_import_cost - export_revenue + charging_cost + discharging_cost - terminal_value
+    total = grid_import_cost - export_revenue + charging_cost + discharging_cost + spillage_cost - terminal_value
     statuses = {step.solve_status for step in steps}
     status = "optimal" if statuses == {"optimal"} else "feasible" if statuses <= {"optimal", "feasible"} else "failed"
     return EnergySimulationPolicyResult(
@@ -193,6 +195,7 @@ def _summarize_policy(project, policy, steps, final_energies):
             charging=charging_cost,
             discharging=discharging_cost,
             shortage=0.0,
+            spillage=spillage_cost,
             terminal_value=terminal_value,
             total=total,
         ),

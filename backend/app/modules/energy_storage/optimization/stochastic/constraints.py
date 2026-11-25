@@ -45,9 +45,10 @@ def add_storage_constraints(model, data, scenarios) -> None:
         storage = storages[a]
         charged = storage.charge_efficiency * m.charge_power_mw[s, a, t] * hours
         withdrawn = m.discharge_power_mw[s, a, t] * hours / storage.discharge_efficiency
-        return m.stored_energy_mwh[s, a, t + 1] == m.stored_energy_mwh[s, a, t] + charged - withdrawn + natural_inflow(scenarios[s], a, t, first_storage_id)
+        return m.stored_energy_mwh[s, a, t + 1] == m.stored_energy_mwh[s, a, t] + charged - withdrawn + natural_inflow(scenarios[s], a, t, first_storage_id) - m.spilled_inflow_mwh[s, a, t]
 
     model.storage_transition = Constraint(model.SCENARIOS, model.STORAGES, model.PERIODS, rule=transition)
+    model.spill_inflow_limit = Constraint(model.SCENARIOS, model.STORAGES, model.PERIODS, rule=lambda m, s, a, t: m.spilled_inflow_mwh[s, a, t] <= natural_inflow(scenarios[s], a, t, first_storage_id))
     model.storage_minimum = Constraint(model.SCENARIOS, model.STORAGES, model.STATE_PERIODS, rule=lambda m, s, a, t: m.stored_energy_mwh[s, a, t] >= storages[a].minimum_energy_mwh)
     model.storage_maximum = Constraint(model.SCENARIOS, model.STORAGES, model.STATE_PERIODS, rule=lambda m, s, a, t: m.stored_energy_mwh[s, a, t] <= storages[a].energy_capacity_mwh)
     model.terminal_storage_requirement = Constraint(model.SCENARIOS, model.STORAGES, rule=lambda m, s, a: m.stored_energy_mwh[s, a, data.number_of_periods] >= storages[a].terminal_energy_minimum_mwh)

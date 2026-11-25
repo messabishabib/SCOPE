@@ -16,6 +16,6 @@ def solve(data,time_limit_seconds=60,commitment_periods=1):
     status={TerminationCondition.optimal:"optimal",TerminationCondition.feasible:"feasible",TerminationCondition.infeasible:"infeasible",TerminationCondition.unbounded:"unbounded",TerminationCondition.maxTimeLimit:"time_limit"}.get(termination,"error")
     runtime=time.perf_counter()-started;diagnostics={"solver":"HiGHS","termination_condition":str(termination),"solver_status":str(outcome.solver.status)}
     if status in {"infeasible","unbounded","error"}:
-        zero=EnergyCostBreakdown(grid_import=0,grid_export_revenue=0,charging=0,discharging=0,shortage=0,terminal_value=0,total=0)
-        return EnergyOptimizationResult(status=status,objective_value=None,solver_runtime_seconds=runtime,periods=[],costs=zero,total_unserved_mwh=0,renewable_curtailment_mwh=0,planning_mode=EnergyPlanningMode.stochastic,diagnostics=diagnostics)
+        zero=EnergyCostBreakdown(grid_import=0,grid_export_revenue=0,charging=0,discharging=0,shortage=0,spillage=0,terminal_value=0,total=0)
+        return EnergyOptimizationResult(status=status,objective_value=None,solver_runtime_seconds=runtime,periods=[],costs=zero,total_unserved_mwh=0,renewable_curtailment_mwh=0,total_spilled_inflow_mwh=0,planning_mode=EnergyPlanningMode.stochastic,diagnostics=diagnostics)
     return extract_result(model,data,scenarios,probabilities,status,runtime,commitment_periods,diagnostics)
