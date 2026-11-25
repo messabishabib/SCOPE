@@ -2,6 +2,23 @@
 
 SCOPE is an open-source portfolio of optimization-based decision-aiding tools. It turns operational and strategic planning questions into explicit mathematical models, solves them with Pyomo and HiGHS, and presents the trade-offs in an interactive web application.
 
+[![CI](https://github.com/messabishabib/SCOPE/actions/workflows/ci.yml/badge.svg)](https://github.com/messabishabib/SCOPE/actions/workflows/ci.yml)
+[![Portfolio showcase](https://img.shields.io/badge/portfolio-showcase-31c3a5)](https://scope-decision-tools.lavishmoat129.chatgpt.site)
+
+## Explore online
+
+[Open the SCOPE portfolio showcase](https://scope-decision-tools.lavishmoat129.chatgpt.site) to explore the two decision workspaces, model pipeline, scientific documentation, and current research roadmap.
+
+[![SCOPE Decision Hub](docs/assets/scope-decision-hub.png)](https://scope-decision-tools.lavishmoat129.chatgpt.site)
+
+The online showcase is a static, presentation-focused demonstration. Run the repository locally to execute the real Pyomo/HiGHS optimization models and persist results.
+
+### Application views
+
+| Capacity planning | Multi-asset energy storage |
+| --- | --- |
+| ![Capacity planning workspace](docs/assets/scope-capacity-planning.png) | ![Energy storage workspace with two storage units](docs/assets/scope-energy-storage.png) |
+
 The current release contains two independent decision workspaces:
 
 | Workspace | Decision | Methods |
@@ -62,6 +79,11 @@ docker compose up --build
 ```
 
 Open http://localhost:5173. The API is at http://localhost:8000/docs.
+
+Individual workspaces can also be opened directly:
+
+- Capacity planning: http://localhost:5173/?module=capacity
+- Energy storage: http://localhost:5173/?module=energy
 
 ## Run for development
 
